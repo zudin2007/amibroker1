@@ -73,11 +73,11 @@ _SECTION_BEGIN("NBSA Pane");
 // This pane shows smart money (institutional) volume analysis
 
 PlotNBSA = ShowNBSA;
-NBSA_Available = (Aux2 != 0 OR BarIndex() < 100);  // Check if Aux2 has data
+NBSA_Cum = Cum(Aux2)/1e9;  // Cumulative NBSA in billions
+NBSA_Available = (LastValue(NBSA_Cum) != 0);  // Check if Aux2 has data
 
 if(PlotNBSA AND NBSA_Available)
 {
-  NBSA_Cum = Cum(Aux2)/1e9;  // Cumulative NBSA in billions
   warnaNBSA = IIf(NBSA_Cum > Ref(NBSA_Cum,-1), colorGreen, colorRed);
 
   Plot(NBSA_Cum, "NBSA Cum (M)", warnaNBSA, styleLine|styleThick);
@@ -85,11 +85,11 @@ if(PlotNBSA AND NBSA_Available)
   Plot(MA(NBSA_Cum,20), "MA20 NBSA", colorOrange, styleLine);
 
   NBSA_Info = StrFormat(" | NBSA: %.2f M | MA5: %.2f | MA20: %.2f",
-                        NBSA_Cum, MA(NBSA_Cum,5), MA(NBSA_Cum,20));
+                        LastValue(NBSA_Cum), LastValue(MA(NBSA_Cum,5)), LastValue(MA(NBSA_Cum,20)));
 }
-else if(PlotNBSA AND !NBSA_Available)
+else if(PlotNBSA AND NOT NBSA_Available)
 {
-  NBSA_Info = " | ⚠️ NBSA Data Not Available (check data feed)";
+  NBSA_Info = " | NBSA Data Not Available (check data feed)";
 }
 else
 {
