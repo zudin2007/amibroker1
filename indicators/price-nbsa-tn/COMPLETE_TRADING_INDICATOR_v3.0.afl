@@ -1,0 +1,346 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPLETE TRADING INDICATOR v3.0 - Professional Grade
+// ═══════════════════════════════════════════════════════════════════════════
+// Purpose: Multi-pane professional trading analysis for IDX stocks
+// Features: Price Action + Fractals + NBSA + Volume + Multiple Timeframes
+// Author: Trading System Development
+// Date: August 3, 2026
+// Status: Production Ready
+// ═══════════════════════════════════════════════════════════════════════════
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 1: CONFIGURATION & PARAMETERS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("1. ENTRY & EXIT CONFIGURATION");
+EntryOffsetTicks = Param("Entry Offset (Ticks)", 2, 1, 5, 1);
+StopOffsetTicks = Param("Stop Loss Offset (Ticks)", 1, 0, 3, 1);
+TargetOffsetTicks = Param("Take Profit Offset (Ticks)", 2, 1, 5, 1);
+UseAlternativeTarget = ParamToggle("Use Alternative Target?", "No|Yes", 0);
+AltTargetPercent = Param("Alt Target %", 2, 0.5, 5, 0.1);
+_SECTION_END();
+
+_SECTION_BEGIN("2. DISPLAY CONFIGURATION");
+WatermarkSize = Param("Watermark Size", 1.2, 0.5, 3, 0.1);
+BgColor = ParamColor("Background Color", colorWhite);
+ShowNBSA = ParamToggle("Show NBSA Pane?", "No|Yes", 1);
+ShowVolume = ParamToggle("Show Volume Pane?", "No|Yes", 1);
+ShowTrendlines = ParamToggle("Show Support/Resistance?", "No|Yes", 1);
+ShowVolumeSpikes = ParamToggle("Show Volume Spikes?", "No|Yes", 1);
+ShowMovingAverages = ParamToggle("Show Moving Averages?", "No|Yes", 1);
+_SECTION_END();
+
+_SECTION_BEGIN("3. MOVING AVERAGE CONFIGURATION");
+MA1Period = Param("MA1 Period", 5, 2, 50, 1);
+MA2Period = Param("MA2 Period", 20, 5, 100, 1);
+MA3Period = Param("MA3 Period", 50, 10, 200, 1);
+MAType = ParamList("MA Type", "SMA|EMA|WMA");
+_SECTION_END();
+
+_SECTION_BEGIN("4. VOLUME & NBSA CONFIGURATION");
+VolSpikeThreshold = Param("Volume Spike Threshold (x avg)", 2, 1, 5, 0.5);
+VolPeriod = Param("Volume MA Period", 20, 5, 50, 1);
+NBSASmoothPeriod = Param("NBSA Smooth Period", 5, 1, 20, 1);
+_SECTION_END();
+
+_SECTION_BEGIN("5. COLOR CONFIGURATION");
+ColorTN = ParamColor("TN Color", colorBlue);
+ColorKN = ParamColor("KN Color", colorRed);
+ColorEntry = ParamColor("Entry Color", colorLime);
+ColorSL = ParamColor("Stop Loss Color", colorRed);
+ColorTP = ParamColor("Take Profit Color", colorOrange);
+ColorVolUp = ParamColor("Volume Up Color", colorGreen);
+ColorVolDn = ParamColor("Volume Down Color", colorRed);
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 2: HELPER FUNCTIONS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Calculate appropriate MA based on type
+function CalcMA(price, period, type)
+{
+  if(type == "EMA")
+    return EMA(price, period);
+  else if(type == "WMA")
+    return WMA(price, period);
+  else
+    return MA(price, period);
+}
+
+// IDX Tick Size Calculation
+function GetTickSize(price)
+{
+  if(price <= 200) return 1;
+  else if(price <= 500) return 2;
+  else if(price <= 2000) return 5;
+  else if(price <= 5000) return 10;
+  else return 25;
+}
+
+// Normalize values for display
+function FormatValue(val)
+{
+  return IIf(val > 1e9, val/1e9, IIf(val > 1e6, val/1e6, val));
+}
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 3: PRICE ACTION & FRACTALS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Price Action & Fractals");
+
+SetChartOptions(0, chartShowArrows | chartShowDates);
+SetChartBkColor(BgColor);
+
+// Candlestick chart
+Plot(C, "Close", colorBlack, styleCandle);
+
+// Watermark with stock name
+GfxSetOverlayMode(1);
+GfxSetTextColor(ParamColor("Watermark Text Color", ColorRGB(220,220,220)));
+GfxSelectFont("Arial Black", (Status("pxheight")/20)*WatermarkSize, 800);
+GfxSetTextAlign(6);
+GfxSetBkMode(0);
+GfxTextOut(Name(), Status("pxwidth")/2, Status("pxheight")/2.8);
+GfxSelectFont("Tahoma", (Status("pxheight")/40)*WatermarkSize, 500);
+GfxTextOut(FullName(), Status("pxwidth")/2, Status("pxheight")/1.9);
+
+// Fractal Detection (5-bar pattern)
+FracUp = ValueWhen((Ref(H,-2) >= Ref(H,-4)) AND (Ref(H,-2) >= Ref(H,-3))
+                    AND (Ref(H,-2) >= Ref(H,-1)) AND (Ref(H,-2) >= H),
+                    Ref(H,-2));
+
+FracDn = ValueWhen((Ref(L,-2) <= Ref(L,-4)) AND (Ref(L,-2) <= Ref(L,-3))
+                    AND (Ref(L,-2) <= Ref(L,-1)) AND (Ref(L,-2) <= L),
+                    Ref(L,-2));
+
+// Plot Fractal Levels
+Plot(FracUp, "TN (Resistance)", ColorTN, styleStaircase|styleThick);
+Plot(FracDn, "KN (Support)", ColorKN, styleStaircase|styleThick);
+
+// Calculate tick sizes
+TickSize = GetTickSize(FracUp);
+L2 = LLV(L, 2);
+L5 = LLV(L, 5);
+TickL2 = GetTickSize(L2);
+TickL5 = GetTickSize(L5);
+
+// Entry, Stop Loss, Take Profit Levels
+HargaTB = FracUp + EntryOffsetTicks * TickSize;
+HargaSL = L2 - StopOffsetTicks * TickL2;
+HargaTS = IIf(UseAlternativeTarget, HargaTB * (1 - AltTargetPercent/100),
+              L5 - TargetOffsetTicks * TickL5);
+
+// Plot Entry/Exit Levels
+Plot(HargaTB, "Entry (TB)", ColorEntry, styleDashed|styleThick);
+Plot(HargaSL, "Stop Loss (SL)", ColorSL, styleDashed|styleThick);
+Plot(HargaTS, "Take Profit (TS)", ColorTP, styleDashed|styleThick);
+
+// Calculate Risk/Reward Metrics
+RiskPerShare = HargaTB - HargaSL;
+ProfitTarget = HargaTS - HargaTB;
+RiskRewardRatio = IIf(RiskPerShare > 0, ProfitTarget / RiskPerShare, 0);
+DistFromFrac = (C - FracUp) / FracUp * 100;
+RiskPercent = (RiskPerShare / HargaTB) * 100;
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 4: MOVING AVERAGES (OPTIONAL)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Moving Averages");
+
+if(ShowMovingAverages)
+{
+  MA1 = CalcMA(C, MA1Period, MAType);
+  MA2 = CalcMA(C, MA2Period, MAType);
+  MA3 = CalcMA(C, MA3Period, MAType);
+
+  Plot(MA1, StrFormat("MA%d", MA1Period), ColorRGB(100,200,255), styleLine);
+  Plot(MA2, StrFormat("MA%d", MA2Period), ColorRGB(255,180,0), styleLine);
+  Plot(MA3, StrFormat("MA%d", MA3Period), ColorRGB(200,100,255), styleLine);
+
+  // Trend indicator based on MAs
+  TrendUp = C > MA1 AND MA1 > MA2 AND MA2 > MA3;
+  TrendDn = C < MA1 AND MA1 < MA2 AND MA2 < MA3;
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 5: NBSA ANALYSIS (SMART MONEY)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("NBSA Analysis");
+
+NBSA_Cum = Cum(Aux2) / 1e9;
+NBSA_Available = (LastValue(NBSA_Cum) != 0);
+
+if(ShowNBSA AND NBSA_Available)
+{
+  warnaNBSA = IIf(NBSA_Cum > Ref(NBSA_Cum,-1), colorGreen, colorRed);
+
+  Plot(NBSA_Cum, "NBSA Cum (M)", warnaNBSA, styleLine|styleThick);
+  Plot(MA(NBSA_Cum, 5), "MA5 NBSA", colorBlue, styleLine);
+  Plot(MA(NBSA_Cum, 20), "MA20 NBSA", colorOrange, styleLine);
+
+  NBSA_Smooth = MA(NBSA_Cum, NBSASmoothPeriod);
+  NBSA_Trend = NBSA_Smooth > Ref(NBSA_Smooth, -1);
+
+  NBSA_Info = StrFormat(" | NBSA: %.2f M | MA5: %.2f | MA20: %.2f | Trend: %s",
+                        LastValue(NBSA_Cum),
+                        LastValue(MA(NBSA_Cum,5)),
+                        LastValue(MA(NBSA_Cum,20)),
+                        IIf(LastValue(NBSA_Trend), "UP", "DOWN"));
+}
+else if(ShowNBSA AND NOT NBSA_Available)
+{
+  NBSA_Info = " | NBSA Data Not Available";
+}
+else
+{
+  NBSA_Info = "";
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 6: VOLUME ANALYSIS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Volume Analysis");
+
+if(ShowVolume)
+{
+  SetChartOptions(0, 0, chartGrid20 | chartGrid30 | chartGrid70 | chartGrid80);
+
+  // Volume histogram
+  VolColor = IIf(C > O, ColorVolUp, ColorVolDn);
+  Plot(V, "Volume", VolColor, styleHistogram|styleThick, 0, 1, 0, 0, 2);
+
+  // Volume moving average
+  VolMA = MA(V, VolPeriod);
+  Plot(VolMA, StrFormat("VMA%d", VolPeriod), colorBlue, styleLine|styleThick);
+
+  // Volume spikes
+  if(ShowVolumeSpikes)
+  {
+    VolSpike = V > VolMA * VolSpikeThreshold;
+    SpikeColor = IIf(C > O, ColorRGB(0,255,0), ColorRGB(255,0,0));
+    Plot(IIf(VolSpike, V*1.05, Null), "Vol Spike", SpikeColor, styleHistogram, 0, 1);
+  }
+
+  VolRatio = V / Max(VolMA, 1);
+  VolQuality = IIf(VolSpike, "SPIKE", IIf(VolRatio > 1.3, "HIGH", "NORMAL"));
+
+  Vol_Info = StrFormat(" | Vol: %g | VMA%d: %g | Ratio: %.1fx | Quality: %s",
+                       V, VolPeriod, VolMA, VolRatio, VolQuality);
+}
+else
+{
+  Vol_Info = "";
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 7: SUPPORT & RESISTANCE (OPTIONAL)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Support & Resistance");
+
+if(ShowTrendlines)
+{
+  // Pivot points
+  PivotH = HHV(H, 20);
+  PivotL = LLV(L, 20);
+
+  Plot(PivotH, "Pivot High (20)", ColorRGB(200,100,100), styleLine, Null, -1);
+  Plot(PivotL, "Pivot Low (20)", ColorRGB(100,100,200), styleLine, Null, -1);
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 8: COMPREHENSIVE TITLE DISPLAY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Comprehensive Title Display");
+
+// Price info section
+PriceInfo = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} | OHLC: %g/%g/%g/%g (%.2f%%)",
+                      O, H, L, C, ROC(C,1));
+
+// Fractal levels section
+FractalInfo = StrFormat(" | TN: %g | KN: %g | Entry: %g | SL: %g | TP: %g",
+                        FracUp, FracDn, HargaTB, HargaSL, HargaTS);
+
+// Risk/Reward section
+RiskInfo = StrFormat(" | Risk: %g (%.2f%%) | R:R: %.2f | Distance: %.2f%%",
+                     RiskPerShare, RiskPercent, RiskRewardRatio, DistFromFrac);
+
+// Trend section
+TrendInfo = IIf(ShowMovingAverages,
+                StrFormat(" | Trend: %s (MA%d > MA%d > MA%d)",
+                         IIf(TrendUp, "UP", IIf(TrendDn, "DOWN", "MIXED")),
+                         MA1Period, MA2Period, MA3Period),
+                "");
+
+// Complete title
+Title = PriceInfo + FractalInfo + RiskInfo + TrendInfo + NBSA_Info + Vol_Info;
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 9: COMMENTARY & ALERTS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Commentary");
+
+// Parameter summary
+AddChartTextObject("Config",
+  StrFormat("Entry: +%d ticks | SL: -%d ticks | TP: -%d ticks | MA: %s(%d,%d,%d)",
+           EntryOffsetTicks, StopOffsetTicks, TargetOffsetTicks,
+           MAType, MA1Period, MA2Period, MA3Period),
+           2, 5, colorGray50, Null, 10);
+
+// Trading Setup Alert
+BullishSetup = (C > HargaTB) AND (C > FracUp) AND
+               IIf(ShowMovingAverages, (C > MA1), True) AND
+               IIf(ShowNBSA, NBSA_Trend, True) AND
+               IIf(ShowVolume, (VolRatio > 1), True);
+
+BearishSetup = (C < HargaSL) AND (C < FracDn) AND
+               IIf(ShowMovingAverages, (C < MA1), True) AND
+               IIf(ShowNBSA, NOT NBSA_Trend, True) AND
+               IIf(ShowVolume, (VolRatio > 1.2), True);
+
+SetupStatus = IIf(BullishSetup, "✓ BULLISH SETUP",
+                  IIf(BearishSetup, "✗ BEARISH SETUP", "NEUTRAL"));
+
+AddChartTextObject("Setup", SetupStatus, 2, 35,
+  IIf(BullishSetup, colorGreen, IIf(BearishSetup, colorRed, colorGray50)),
+  Null, 12);
+
+// Price near levels alert
+PriceNearEntry = (Abs(C - HargaTB) / HargaTB * 100 < 2);
+PriceNearSL = (Abs(C - HargaSL) / HargaSL * 100 < 2);
+PriceNearTP = (Abs(C - HargaTS) / HargaTS * 100 < 2);
+
+Alert = "";
+if(PriceNearEntry) Alert = Alert + "⚠ NEAR ENTRY | ";
+if(PriceNearSL) Alert = Alert + "⚠ NEAR SL | ";
+if(PriceNearTP) Alert = Alert + "⚠ NEAR TP";
+
+if(Alert != "")
+{
+  AddChartTextObject("Alerts", Alert, 2, 65, colorOrange, Null, 11);
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// END OF INDICATOR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
