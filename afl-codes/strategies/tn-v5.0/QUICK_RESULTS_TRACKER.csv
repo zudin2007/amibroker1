@@ -1,0 +1,16 @@
+Phase,Test_Date,VScore,Risk_Percent,Min_Score,TRX_Billions,Period_Months,Num_Trades,Win_Percent,Total_Return_Percent,Max_Drawdown_Percent,Profit_Factor,Avg_Win_Percent,Avg_Loss_Percent,Best_Trade_Percent,Worst_Trade_Percent,Status,Notes
+1,2026-08-03,7,6,70,4,3,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] PASS [ ] FAIL,Validate basic logic
+2,2026-08-03,6,8,60,2,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] PASS [ ] FAIL,Test default parameters
+3.1,2026-08-03,6,6,50,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 1
+3.2,2026-08-03,6,6,60,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 2
+3.3,2026-08-03,6,6,70,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 3
+3.4,2026-08-03,6,8,50,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 4
+3.5,2026-08-03,6,8,60,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 5
+3.6,2026-08-03,6,8,70,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 6
+3.7,2026-08-03,6,10,50,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 7
+3.8,2026-08-03,6,10,60,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 8
+3.9,2026-08-03,6,10,70,1,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 9
+3.10,2026-08-03,7,6,50,2,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 10
+3.11,2026-08-03,7,8,60,2,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 11
+3.12,2026-08-03,8,8,60,2,12,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] TEST,Optimize - Test 12
+4,2026-08-03,[  ],[  ],[  ],[  ],24,[  ],[  ]%,[  ]%,[  ]%,[  ]x,[  ]%,[  ]%,[  ]%,[  ]%,[ ] PASS [ ] FAIL,Validation on fresh data

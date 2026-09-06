@@ -1,0 +1,87 @@
+/*
+MACD MOMENTUM STRATEGY
+====================
+Momentum strategy using MACD (Moving Average Convergence Divergence).
+Captures momentum changes using MACD and signal line crossovers.
+
+Rules:
+- Buy: When MACD crosses above signal line
+- Sell: When MACD crosses below signal line
+
+Best For: Capturing momentum moves
+Timeframes: 1H, 4H, 1D
+Risk Level: Medium
+
+Parameters:
+- FastEMA: Fast EMA period (default: 12)
+- SlowEMA: Slow EMA period (default: 26)
+- SignalPeriod: Signal line EMA period (default: 9)
+*/
+
+// Parameters
+Param("Fast EMA", 12, 5, 30, 1);
+Param("Slow EMA", 26, 10, 50, 1);
+Param("Signal Period", 9, 5, 20, 1);
+Param("Volume Filter", "No|Yes", 0);
+Param("Stop Loss %", 1.5, 0.5, 5, 0.1);
+
+FastEMA_Period = Param("Fast EMA", 12, 5, 30, 1);
+SlowEMA_Period = Param("Slow EMA", 26, 10, 50, 1);
+SignalPeriod = Param("Signal Period", 9, 5, 20, 1);
+VolumeFilter = Param("Volume Filter", 0, 0, 1, 1);
+StopLossPercent = Param("Stop Loss %", 1.5, 0.5, 5, 0.1) / 100;
+
+// Calculate MACD
+FastEMA = EMA(Close, FastEMA_Period);
+SlowEMA = EMA(Close, SlowEMA_Period);
+MACD_Value = FastEMA - SlowEMA;
+Signal = EMA(MACD_Value, SignalPeriod);
+Histogram = MACD_Value - Signal;
+
+// Entry signals
+MACD_CrossAbove = Cross(MACD_Value, Signal);
+MACD_CrossBelow = Cross(Signal, MACD_Value);
+
+// Volume confirmation (optional)
+HighVolume = Volume > EMA(Volume, 20) * 1.2;
+
+if(VolumeFilter) {
+    Buy = MACD_CrossAbove AND HighVolume;
+    Sell = MACD_CrossBelow OR NOT HighVolume;
+} else {
+    Buy = MACD_CrossAbove;
+    Sell = MACD_CrossBelow;
+}
+
+// Stop Loss
+ApplyStop(stopTypeLoss, stopModePercent, StopLossPercent, 1);
+
+// Plot Price
+Plot(Close, "Close", colorBlack, styleLine | styleThick);
+
+// MACD Plot (separate pane)
+NewPlot = ParamToggle("Show MACD", "Hide|Show", 1);
+if(NewPlot) {
+    Plot(MACD_Value, "MACD", colorBlue, styleLine);
+    Plot(Signal, "Signal", colorRed, styleLine);
+
+    // Histogram colors
+    HistogramColor = IIF(Histogram > 0, colorGreen, colorRed);
+    Plot(Histogram, "Histogram", HistogramColor, styleHistogram);
+
+    // Zero line
+    Plot(0, "Zero", colorGray50, styleDashed);
+}
+
+// Signal arrows on price chart
+PlotShapes(Buy * shapeUpArrow, colorGreen, 0, Low - 2 * ATR(14));
+PlotShapes(Sell * shapeDownArrow, colorRed, 0, High + 2 * ATR(14));
+
+// Analysis columns
+AddColumn(Close, "Close", 1.2);
+AddColumn(MACD_Value, "MACD", 1.2);
+AddColumn(Signal, "Signal", 1.2);
+AddColumn(Histogram, "Histogram", 1.2);
+AddColumn(Volume, "Volume", 1.0);
+AddColumn(EMA(Volume, 20), "Volume MA", 1.0);
+AddColumn(IIF(MACD_CrossAbove, 1, IIF(MACD_CrossBelow, -1, 0)), "Signal", 1.0);

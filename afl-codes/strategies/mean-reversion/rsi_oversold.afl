@@ -1,0 +1,78 @@
+/*
+RSI OVERSOLD MEAN REVERSION STRATEGY
+====================================
+Mean reversion strategy using RSI indicator.
+Buys when RSI shows oversold conditions, expecting mean reversion.
+
+Rules:
+- Buy: When RSI goes below 30 (oversold) AND price > 20-day SMA
+- Sell: When RSI goes above 70 (overbought) OR Close below entry stop loss
+
+Best For: Short-term swing trading
+Timeframes: 15M, 1H, 4H
+Risk Level: Medium-High
+
+Parameters:
+- RSI_Period: RSI period (default: 14)
+- Oversold_Level: Oversold threshold (default: 30)
+- Overbought_Level: Overbought threshold (default: 70)
+- MA_Period: Moving average period for trend filter
+*/
+
+// Parameters
+Param("RSI Period", 14, 7, 28, 1);
+Param("Oversold Level", 30, 10, 40, 5);
+Param("Overbought Level", 70, 60, 90, 5);
+Param("MA Period", 20, 10, 50, 5);
+Param("Stop Loss %", 2.5, 0.5, 5, 0.1);
+
+RSI_Period = Param("RSI Period", 14, 7, 28, 1);
+OversoldLevel = Param("Oversold Level", 30, 10, 40, 5);
+OverboughtLevel = Param("Overbought Level", 70, 60, 90, 5);
+MA_Period = Param("MA Period", 20, 10, 50, 5);
+StopLossPercent = Param("Stop Loss %", 2.5, 0.5, 5, 0.1) / 100;
+
+// Calculate indicators
+RSI_Value = RSI(RSI_Period);
+MA_Trend = SMA(Close, MA_Period);
+
+// Entry conditions - wait for RSI to cross above oversold
+Oversold = Cross(OversoldLevel, RSI_Value);
+Overbought = Cross(RSI_Value, OverboughtLevel);
+
+TrendUp = Close > MA_Trend;
+TrendDown = Close < MA_Trend;
+
+// Generate signals
+Buy = Oversold AND TrendUp;
+Sell = Overbought OR TrendDown;
+
+// Stop Loss
+ApplyStop(stopTypeLoss, stopModePercent, StopLossPercent, 1);
+
+// Plot
+Plot(Close, "Close", colorBlack, styleLine | styleThick);
+Plot(MA_Trend, "MA (" + MA_Period + ")", colorGray50, styleDashed);
+
+// RSI subplot
+NewPlot = ParamToggle("Show RSI", "Hide|Show", 1);
+if(NewPlot) {
+    Plot(RSI_Value, "RSI (" + RSI_Period + ")", colorBlue, styleLine);
+    Plot(OverboughtLevel, "Overbought", colorRed, styleDashed);
+    Plot(OversoldLevel, "Oversold", colorGreen, styleDashed);
+
+    // Fill zones
+    PlotOHLC(OversoldLevel, OversoldLevel, 0, 0, "", colorLightGreen, styleHistogram);
+    PlotOHLC(100, OverboughtLevel, OverboughtLevel, 0, "", colorLightRed, styleHistogram);
+}
+
+// Signal arrows
+PlotShapes(Buy * shapeUpArrow, colorGreen, 0, Low - 2 * ATR(14));
+PlotShapes(Sell * shapeDownArrow, colorRed, 0, High + 2 * ATR(14));
+
+// Analysis columns
+AddColumn(Close, "Close", 1.2);
+AddColumn(RSI_Value, "RSI", 1.1);
+AddColumn(MA_Trend, "MA", 1.2);
+AddColumn(IIF(Oversold, 1, 0), "Oversold", 1.0);
+AddColumn(IIF(Overbought, 1, 0), "Overbought", 1.0);

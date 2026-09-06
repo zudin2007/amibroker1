@@ -1,0 +1,436 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// PRICE-NBSA-INDEKS v2.0 MODERNIZED - IDX Trading System
+// ═══════════════════════════════════════════════════════════════════════════
+// Purpose: Comprehensive IDX stock analysis with TN fractal system + screener
+// Features: NBSA analysis + Candle reversals + Trend filtering + Risk management
+// Based on: Price-NBSA-Indeks.afl (Original)
+// Improvements: Better organization, parameterization, modern structure
+// Date: August 3, 2026
+// Status: Production Ready
+// ═══════════════════════════════════════════════════════════════════════════
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 1: CONFIGURATION & PARAMETERS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("1. ENTRY & EXIT CONFIGURATION");
+EntryOffsetTicks = Param("Entry Offset (Ticks above TN)", 4, 1, 8, 1);
+StopOffsetTicks = Param("Stop Loss Offset (Ticks below L2)", 1, 0, 3, 1);
+TargetOffsetTicks = Param("Take Profit Offset (Ticks below L5)", 2, 1, 5, 1);
+TrendMA30Period = Param("Trend MA30 Period", 30, 10, 50, 1);
+TrendMA60Period = Param("Trend MA60 Period", 60, 30, 100, 1);
+TrendMA100Period = Param("Trend MA100 Period", 100, 50, 150, 1);
+TrendMA200Period = Param("Trend MA200 Period", 200, 100, 300, 1);
+_SECTION_END();
+
+_SECTION_BEGIN("2. RISK MANAGEMENT CONFIGURATION");
+CapitalModal = Param("Modal (IDR)", 170000000, 10000000, 1000000000, 1000000);
+RiskPerTrade = Param("Risk Per Trade (%)", 0.4, 0.1, 2, 0.1);
+VolumePeriod = Param("Volume Average Period", 30, 10, 50, 1);
+MinTransaksi = Param("Minimum Transaction (IDR)", 2000000000, 500000000, 10000000000, 500000000);
+_SECTION_END();
+
+_SECTION_BEGIN("3. DISPLAY CONFIGURATION");
+WatermarkSize = Param("Watermark Font Size", 1, 0.3, 2, 0.1);
+ShowTicker = ParamToggle("Show Ticker Info?", "No|Yes", 1);
+ShowPrice = ParamToggle("Show Price Pane?", "No|Yes", 1);
+ShowChart = ParamToggle("Show TN Chart?", "No|Yes", 1);
+ShowScreener = ParamToggle("Show Screener Columns?", "No|Yes", 1);
+BgColor = ParamColor("Background Color", colorWhite);
+TextColor = ParamColor("Text Color", colorLightGrey);
+_SECTION_END();
+
+_SECTION_BEGIN("4. SIGNAL CONFIGURATION");
+ShowCandleReversal = ParamToggle("Show Candle Reversal Signals?", "No|Yes", 1);
+ShowTrend = ParamToggle("Show Trend Analysis?", "No|Yes", 1);
+ShowNBSA = ParamToggle("Show NBSA Analysis?", "No|Yes", 1);
+ShowPixelBars = ParamToggle("Show Pixel Status Bars?", "No|Yes", 1);
+ShowNBSAZone = ParamToggle("Show NBSA Zone?", "No|Yes", 0);
+_SECTION_END();
+
+_SECTION_BEGIN("5. COLOR CONFIGURATION");
+ColorTN = ParamColor("TN (Resistance) Color", colorBlue);
+ColorKN = ParamColor("KN (Support) Color", colorRed);
+ColorEntry = ParamColor("Entry Level Color", colorLime);
+ColorSL = ParamColor("Stop Loss Color", colorRed);
+ColorTP = ParamColor("Take Profit Color", colorOrange);
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 2: HELPER FUNCTIONS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// IDX Tick Size Calculation (BEI standard)
+function GetTickSize(price)
+{
+  if(price <= 200) return 1;
+  else if(price <= 500) return 2;
+  else if(price <= 2000) return 5;
+  else if(price <= 5000) return 10;
+  else return 25;
+}
+
+// Percentage change calculation
+function PercentChange(old, new)
+{
+  return ((new / old) - 1) * 100;
+}
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 3: PRICE & WATERMARK DISPLAY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Price & Watermark");
+
+if(ShowPrice)
+{
+  SetChartOptions(0, chartShowArrows | chartShowDates);
+  SetChartBkColor(BgColor);
+
+  // Daily and YTD returns
+  C1 = C[0];
+  C2 = C[1];
+  DailyReturn = PercentChange(C2, C1);
+  YTDReturn = PercentChange(C1, C);
+
+  _N(Title = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} | OHLC: %g/%g/%g/%g (%.1f%%) | YTD: %.1f%% {{VALUES}}",
+                       O, H, L, C, DailyReturn, YTDReturn));
+
+  Plot(C, "Close", colorBlack, styleNoTitle | ParamStyle("Price Style") | GetPriceStyle());
+}
+
+if(ShowTicker)
+{
+  GfxSetOverlayMode(1);
+  GfxSetTextColor(TextColor);
+  GfxSetBkMode(0);
+
+  // Stock name - Large
+  GfxSelectFont("Tahoma", (Status("pxheight")/20) * WatermarkSize, 700);
+  GfxSetTextAlign(6);
+  GfxTextOut(Name(), Status("pxwidth")/2, Status("pxheight")/8);
+
+  // Full name - Medium
+  GfxSelectFont("Tahoma", (Status("pxheight")/30) * WatermarkSize, 500);
+  GfxTextOut(FullName(), Status("pxwidth")/2, Status("pxheight")/5);
+  GfxTextOut(GroupID(1), Status("pxwidth")/2, Status("pxheight")/4);
+  GfxTextOut(IndustryID(1), Status("pxwidth")/2, Status("pxheight")/3.4);
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 4: FRACTAL DETECTION (TN/KN SYSTEM)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Fractal Detection");
+
+// 5-bar high pattern (Tapak Naga Up)
+FracUpPattern = (Ref(H, -2) >= Ref(H, -4)) AND
+                (Ref(H, -2) >= Ref(H, -3)) AND
+                (Ref(H, -2) >= Ref(H, -1)) AND
+                (Ref(H, -2) >= H);
+
+FracUp = ValueWhen(FracUpPattern, Ref(H, -2));
+
+// 5-bar low pattern (Kaki Naga Down)
+FracDnPattern = (Ref(L, -2) <= Ref(L, -4)) AND
+                (Ref(L, -2) <= Ref(L, -3)) AND
+                (Ref(L, -2) <= Ref(L, -1)) AND
+                (Ref(L, -2) <= L);
+
+FracDn = ValueWhen(FracDnPattern, Ref(L, -2));
+
+// Low levels for stop loss and target
+L2 = LLV(L, 2);
+L5 = LLV(L, 5);
+
+// Calculate tick sizes for each level (BEI standard)
+TickSize = GetTickSize(FracUp);
+TickL2 = GetTickSize(L2);
+TickL5 = GetTickSize(L5);
+
+// Entry, Stop Loss, Take Profit levels
+HargaTB = FracUp + (EntryOffsetTicks * TickSize);
+HargaTB2 = FracUp + (2 * TickSize);
+HargaSL = L2 - (StopOffsetTicks * TickL2);
+HargaTS = L5 - (TargetOffsetTicks * TickL5);
+
+// Risk and Reward calculations
+RiskPerShare = HargaTB - HargaSL;
+ProfitTarget = HargaTS - HargaTB;
+RiskRewardRatio = IIf(RiskPerShare > 0, ProfitTarget / RiskPerShare, 0);
+RiskPercent = (RiskPerShare / HargaTB) * 100;
+DistFromFrac = (C - FracUp) / FracUp * 100;
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 5: TREND ANALYSIS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Trend Analysis");
+
+MA30 = MA(C, TrendMA30Period);
+MA60 = MA(C, TrendMA60Period);
+MA100 = MA(C, TrendMA100Period);
+MA200 = MA(C, TrendMA200Period);
+
+// Trend classification
+DownTrendShort = C <= MA30;
+DownTrendMedium = C <= MA60;
+DownTrendLong = C <= MA100;
+DownTrendVeryLong = C <= MA200;
+
+UpTrendShort = C >= MA30;
+UpTrendMedium = C >= MA60;
+UpTrendLong = C >= MA100;
+UpTrendVeryLong = C >= MA200;
+
+// Combined trend status
+TrendUp = (MA30 > MA60) AND (MA60 > MA100) AND (MA100 > MA200);
+TrendDown = (MA30 < MA60) AND (MA60 < MA100) AND (MA100 < MA200);
+
+if(ShowTrend)
+{
+  Title = Title + " | Trend: ";
+  Title = Title + WriteIf(DownTrendShort, EncodeColor(colorRed) + "Short↓ ",
+                         WriteIf(UpTrendShort, EncodeColor(colorGreen) + "Short↑ ", ""));
+  Title = Title + WriteIf(DownTrendMedium, EncodeColor(colorRed) + "Med↓ ",
+                         WriteIf(UpTrendMedium, EncodeColor(colorGreen) + "Med↑ ", ""));
+  Title = Title + WriteIf(DownTrendLong, EncodeColor(colorRed) + "Long↓",
+                         WriteIf(UpTrendLong, EncodeColor(colorGreen) + "Long↑", ""));
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 6: CANDLE REVERSAL PATTERNS
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Candle Reversals");
+
+if(ShowCandleReversal)
+{
+  C1 = Ref(C, -1);
+  C2 = Ref(C, -2);
+  A1 = Ref((O+H+L+C)/4, -1);
+  A2 = Ref((O+H+L+C)/4, -2);
+  A3 = Ref((O+H+L+C)/4, -3);
+  A4 = Ref((O+H+L+C)/4, -4);
+  O1 = Ref(O, -1);
+  O2 = Ref(O, -2);
+
+  // Downtrend condition
+  DowntrendCond = (A1 < A2) AND (A2 < A3) AND (A1 < A4);
+  DownCandleCond = (C1 <= O1) AND (C2 <= O2);
+  DowntrendSignal = DowntrendCond AND DownCandleCond;
+
+  // Uptrend condition
+  UptrendCond = (A1 > A2) AND (A2 > A3) AND (A1 > A4);
+  UpCandleCond = (C1 >= O1) AND (C2 >= O2);
+  UptrendSignal = UptrendCond AND UpCandleCond;
+
+  // Candlestick patterns
+  BodyDown = O - C;
+  TailDown = C - L;
+  HammerDown = (O == H) AND (C < O) AND (TailDown >= 2 * BodyDown);
+
+  BodyUp = C - O;
+  TailUp = O - L;
+  HammerUp = (C == H) AND (C > O) AND (TailUp >= 2 * BodyUp);
+
+  Hammer = HammerUp OR HammerDown;
+  Doji = O == C;
+  CandleUp = C > O;
+  CandleDown = C < O;
+
+  BullishReversal = Doji OR CandleUp OR Hammer;
+  BearishReversal = Doji OR CandleDown OR Hammer;
+
+  BullishSignal = DowntrendSignal AND BullishReversal;
+  BearishSignal = UptrendSignal AND BearishReversal;
+
+  PlotShapes(IIf(BullishSignal, shapeHollowSmallCircle, shapeNone), colorBlue, 0, L, -15);
+  PlotShapes(IIf(BearishSignal, shapeHollowSmallCircle, shapeNone), colorRed, 0, H, 15);
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 7: NBSA ANALYSIS (SMART MONEY VOLUME)
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("NBSA Analysis");
+
+if(ShowNBSA)
+{
+  // NBSA Cumulative since beginning
+  NBSAValue_Cum = Cum(Aux2) / 1000000000;
+
+  // NBSA since chart begin value
+  TglAwal = BeginValue(DateTime());
+  Bar = BarsSince(DateTime() == TglAwal);
+  NBSAValue_Sum = Sum(Aux2, Bar) / 1000000000;
+
+  // Color based on trend
+  warnaNBSA = IIf(NBSAValue_Cum > Ref(NBSAValue_Cum, -1), colorGreen, colorRed);
+
+  Plot(NBSAValue_Cum, "NBSA Cum", warnaNBSA, styleLine | styleThick | styleLeftAxisScale | styleOwnScale | styleNoTitle);
+
+  // NBSA zones
+  MA5NBSA = MA(NBSAValue_Cum, 5);
+  MA20NBSA = MA(NBSAValue_Cum, 20);
+
+  // Zone coloring
+  ZoneGreen = (NBSAValue_Cum > MA5NBSA) AND (NBSAValue_Cum > MA20NBSA);
+  ZoneYellow = (NBSAValue_Cum > MA5NBSA) AND NOT (NBSAValue_Cum > MA20NBSA);
+  ZoneRed = (NBSAValue_Cum < MA5NBSA) AND (NBSAValue_Cum < MA20NBSA);
+
+  ZoneColorNBSA = IIf(ZoneGreen, colorGreen, IIf(ZoneYellow, colorYellow, IIf(ZoneRed, colorRed, 0)));
+
+  if(ShowNBSAZone)
+  {
+    Plot(2, "Zone NBSA", ZoneColorNBSA, styleOwnScale | styleArea | styleNoTitle, -0.5, 100);
+  }
+
+  Title = Title + EncodeColor(colorBlack) + " | NBSA (Rp Mil.): " +
+          EncodeColor(IIf(NBSAValue_Cum < 0, colorRed, colorGreen)) +
+          WriteVal(NBSAValue_Cum, 1.2) + " (Cum) / " +
+          WriteVal(NBSAValue_Sum, 1.2) + " (Since " + DateTimeToStr(TglAwal) + ")";
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 8: SCREENER & RISK MANAGEMENT
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("Screener");
+
+if(ShowScreener)
+{
+  // Volume analysis
+  VMA30 = MA(Ref(V, -1), VolumePeriod);
+  AvgTrx30D = VMA30 * EMA(Close, VolumePeriod);
+
+  // Entry conditions
+  Cond1 = Close > EMA(Close, 60);
+  Cond2 = EMA(Close, 30) > MA(Close, 100);
+  Cond3 = EMA(Close, 30) > MA(Close, 200);
+  Cond4 = RSI(14) >= 50;
+  Cond5 = AvgTrx30D > MinTransaksi;
+
+  // Combined filter
+  TNFilter = Cond1 AND Cond2 AND Cond3 AND Cond4 AND Cond5;
+
+  // Risk calculations
+  FeeBuy = 0.0015;
+  FeeSell = 0.0025;
+
+  RiskPosisi = (((FeeBuy * HargaTB) + HargaTB) - HargaSL) * 100;
+  RPT = RiskPerTrade / 100;
+  LotBeli = (CapitalModal * RPT) / RiskPosisi;
+
+  // Watchlist coloring
+  if(InWatchlist(2))
+  {
+    colorFont = colorWhite;
+    colorCell = colorBlue;
+  }
+  else if(InWatchlist(3))
+  {
+    colorFont = colorBlack;
+    colorCell = colorYellow;
+  }
+  else
+  {
+    colorFont = colorCell = colorDefault;
+  }
+
+  // Screener columns
+  SetOption("NoDefaultColumns", True);
+  AddTextColumn(Name(), "Ticker", 1, colorFont, colorCell);
+  AddColumn(High, "High");
+  AddColumn(HargaTB2, "TN", 2, 1, colorLime, 50);
+  AddColumn(LotBeli, "Lot", 2, 1, colorDefault, 50);
+  AddColumn(HargaSL, "SL", 2, 1, colorRed, 50);
+  AddColumn(RiskPercent, "Risk%", 2, colorDefault, IIf(RiskPercent <= 10, colorAqua,
+                                                         IIf(RiskPercent > 15, colorBrown, colorDefault)), 50);
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 9: TN CHART DISPLAY
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_SECTION_BEGIN("TN Chart");
+
+if(ShowChart)
+{
+  SetChartOptions(0, chartShowArrows | chartShowDates);
+  _N(Title = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} | OHLC: %g/%g/%g/%g (%.1f%%) {{VALUES}}",
+                       O, H, L, C, ROC(C, 1)));
+
+  Plot(C, "Close", colorDefault, styleNoTitle | ParamStyle("Price Style") | GetPriceStyle());
+
+  // Plot fractal levels
+  Plot(FracUp, "TN", ColorTN, styleStaircase | styleThick);
+  Plot(FracDn, "KN", ColorKN, styleStaircase | styleThick);
+
+  // Plot entry/exit levels
+  Plot(HargaTB2, "Entry TN+2", ColorEntry, styleDashed | styleThick);
+  Plot(HargaSL, "Stop Loss", ColorSL, styleDashed | styleThick);
+  Plot(HargaTS, "Target", ColorTP, styleDashed | styleThick);
+
+  // Text display
+  GfxSetOverlayMode(1);
+  GfxSetBkMode(0);
+  GfxSetTextAlign(0 | 0);
+  GfxSelectFont("Tahoma", 10);
+
+  // Column 1 - Entry info
+  GfxSetTextColor(colorLightBlue);
+  GfxTextOut("Buy TN=" + NumToStr(HargaTB2, 1.0), 2, 20);
+
+  GfxSetTextColor(colorRed);
+  GfxTextOut("Lot=" + NumToStr(LotBeli, 1.2), 2, 35);
+
+  // Column 2 - Stop/ATR
+  GfxSetTextColor(colorWhite);
+  GfxTextOut("ATR=" + NumToStr(ATR(20), 1.0), 130, 20);
+
+  GfxSetTextColor(colorGold);
+  GfxTextOut("SL=" + NumToStr(HargaSL, 1.0), 130, 35);
+
+  // Column 3 - Risk
+  GfxSetTextColor(colorLightBlue);
+  GfxTextOut("Risk%" + NumToStr(RiskPercent, 1.2), 220, 20);
+
+  // Pixel status bars
+  if(ShowPixelBars)
+  {
+    // TN Signal bar
+    TNSignal = TNFilter;
+    PixelTN = IIf(TNSignal, colorGreen, colorRed);
+    SetBarFillColor(PixelTN);
+    PlotOHLC(11.5, 14, 11.5, 14, "", colorBlack, styleOwnScale | 64 | styleNoLabel, -0.5, 200, 0, -1);
+
+    // Uptrend bar
+    PixelTrend = IIf(TrendUp, colorGreen, colorRed);
+    SetBarFillColor(PixelTrend);
+    PlotOHLC(8.5, 11, 8.5, 11, "", colorBlack, styleOwnScale | 64 | styleNoLabel, -0.5, 200, 0, -1);
+
+    // RSI bar
+    RSIStatus = IIf(RSI(14) > 55, colorGreen, IIf(RSI(14) < 50, colorRed, colorPaleGreen));
+    SetBarFillColor(RSIStatus);
+    PlotOHLC(5.5, 8, 5.5, 8, "", colorBlack, styleOwnScale | 64 | styleNoLabel, -0.5, 200, 0, -1);
+  }
+}
+
+_SECTION_END();
+
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// END OF INDICATOR
+//━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

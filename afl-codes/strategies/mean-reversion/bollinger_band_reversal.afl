@@ -1,0 +1,81 @@
+/*
+BOLLINGER BANDS MEAN REVERSION STRATEGY
+========================================
+Mean reversion strategy using Bollinger Bands.
+Trades based on price touching extreme bands and expecting reversion.
+
+Rules:
+- Buy: When price touches/crosses below lower band (oversold)
+- Sell: When price touches/crosses above upper band (overbought)
+
+Best For: Range-bound market conditions
+Timeframes: 1H, 4H, 1D
+Risk Level: Medium
+
+Parameters:
+- BB_Period: Bollinger Bands period (default: 20)
+- BB_StdDev: Standard deviation multiplier (default: 2.0)
+- TP_Percent: Take profit percentage (default: 1.5)
+*/
+
+// Parameters
+Param("BB Period", 20, 10, 50, 1);
+Param("BB StdDev", 2.0, 1.0, 3.0, 0.1);
+Param("Take Profit %", 1.5, 0.5, 3, 0.1);
+Param("Stop Loss %", 2.0, 0.5, 5, 0.1);
+
+BB_Period = Param("BB Period", 20, 10, 50, 1);
+BB_StdDev = Param("BB StdDev", 2.0, 1.0, 3.0, 0.1);
+TP_Percent = Param("Take Profit %", 1.5, 0.5, 3, 0.1) / 100;
+SL_Percent = Param("Stop Loss %", 2.0, 0.5, 5, 0.1) / 100;
+
+// Calculate Bollinger Bands
+BBandMiddle = SMA(Close, BB_Period);
+BBandStdDev = StDev(Close, BB_Period);
+BBandUpper = BBandMiddle + (BBandStdDev * BB_StdDev);
+BBandLower = BBandMiddle - (BBandStdDev * BB_StdDev);
+BBandWidth = (BBandUpper - BBandLower) / BBandMiddle;
+BBandPosition = (Close - BBandLower) / (BBandUpper - BBandLower);
+
+// Entry signals
+TouchedLower = Cross(BBandLower, Close);  // Price goes below lower band
+TouchedUpper = Cross(Close, BBandUpper);  // Price goes above upper band
+
+// Generate signals
+Buy = TouchedLower;
+Sell = TouchedUpper;
+
+// Risk management
+ApplyStop(stopTypeLoss, stopModePercent, SL_Percent, 1);
+ApplyStop(stopTypeProfit, stopModePercent, TP_Percent, 1);
+
+// Plot
+Plot(Close, "Close", colorBlack, styleLine | styleThick);
+Plot(BBandUpper, "Upper Band", colorRed, styleDashed);
+Plot(BBandMiddle, "Middle Band (MA)", colorGray50, styleDashed);
+Plot(BBandLower, "Lower Band", colorGreen, styleDashed);
+
+// Fill band area
+Plot(BBandUpper, "", colorLightRed, styleArea);
+Plot(BBandLower, "", colorLightGreen, styleArea);
+
+// Color candles based on band position
+OverextendedHigh = Close > BBandUpper;
+OverextendedLow = Close < BBandLower;
+
+PlotOHLC(Open, High, Low, Close, "OHLC",
+    IIF(OverextendedHigh, colorRed, IIF(OverextendedLow, colorGreen, colorGray50)),
+    styleCandle);
+
+// Signal arrows
+PlotShapes(Buy * shapeUpArrow, colorGreen, 0, BBandLower - ATR(14));
+PlotShapes(Sell * shapeDownArrow, colorRed, 0, BBandUpper + ATR(14));
+
+// Analysis columns
+AddColumn(Close, "Close", 1.2);
+AddColumn(BBandUpper, "Upper", 1.2);
+AddColumn(BBandMiddle, "Middle", 1.2);
+AddColumn(BBandLower, "Lower", 1.2);
+AddColumn(BBandWidth * 100, "Width %", 1.1);
+AddColumn(BBandPosition * 100, "Position %", 1.1);
+AddColumn(IIF(OverextendedHigh, 1, IIF(OverextendedLow, -1, 0)), "Overextended", 1.0);
