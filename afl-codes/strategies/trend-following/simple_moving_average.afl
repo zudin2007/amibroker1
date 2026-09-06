@@ -1,0 +1,62 @@
+/*
+SIMPLE MOVING AVERAGE CROSSOVER STRATEGY
+=========================================
+A trend-following strategy using simple moving averages (SMA).
+
+Rules:
+- Buy: When fast MA crosses above slow MA
+- Sell: When fast MA crosses below slow MA
+
+Best For: Medium to long-term trend following
+Timeframes: 1H, 4H, 1D
+Risk Level: Low-Medium
+
+Parameters:
+- FastPeriod: Fast moving average period (default: 10)
+- SlowPeriod: Slow moving average period (default: 20)
+*/
+
+// Parameters
+Param("Fast MA Period", 10, 5, 50, 1);
+Param("Slow MA Period", 20, 10, 100, 1);
+Param("Entry Stop %", 1.0, 0.1, 5, 0.1);
+
+FastPeriod = Param("Fast MA Period", 10, 5, 50, 1);
+SlowPeriod = Param("Slow MA Period", 20, 10, 100, 1);
+StopPercent = Param("Entry Stop %", 1.0, 0.1, 5, 0.1) / 100;
+
+// Calculate Moving Averages
+FastMA = SMA(Close, FastPeriod);
+SlowMA = SMA(Close, SlowPeriod);
+
+// Entry Signals
+Buy = Cross(FastMA, SlowMA);
+Sell = Cross(SlowMA, FastMA);
+
+// Exit signals (optional: trend reversal)
+Sell = Cross(SlowMA, FastMA);
+
+// Stop Loss and Take Profit
+BuyPrice = Close;
+SellPrice = Close;
+
+// For backtesting
+ApplyStop(stopTypeLoss, stopModePercent, StopPercent, 1);
+
+// Plot
+Plot(Close, "Close Price", colorBlack, styleLine | styleThick);
+Plot(FastMA, "Fast MA (" + FastPeriod + ")", colorBlue, styleLine);
+Plot(SlowMA, "Slow MA (" + SlowPeriod + ")", colorRed, styleLine);
+
+// Highlight trend zones
+PlotOHLC(Open, High, Low, Close, "OHLC", IIF(Close > FastMA AND Close > SlowMA, colorGreen, IIF(Close < FastMA AND Close < SlowMA, colorRed, colorDarkGrey)), styleCandle);
+
+// Signal arrows
+PlotShapes(Buy * shapeUpArrow, colorGreen, 0, Low - 2 * ATR(14));
+PlotShapes(Sell * shapeDownArrow, colorRed, 0, High + 2 * ATR(14));
+
+// Add text labels
+AddColumn(Close, "Close", 1.2);
+AddColumn(FastMA, "Fast MA", 1.2);
+AddColumn(SlowMA, "Slow MA", 1.2);
+AddColumn(Close - FastMA, "Spread", 1.2);

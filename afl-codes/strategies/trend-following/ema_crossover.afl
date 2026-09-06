@@ -1,0 +1,74 @@
+/*
+EXPONENTIAL MOVING AVERAGE CROSSOVER STRATEGY
+==============================================
+A responsive trend-following strategy using exponential moving averages (EMA).
+EMAs react faster to price changes compared to SMAs.
+
+Rules:
+- Buy: When fast EMA crosses above slow EMA AND price is above 200 EMA
+- Sell: When fast EMA crosses below slow EMA
+
+Best For: Swing to long-term trend following
+Timeframes: 1H, 4H, 1D, 1W
+Risk Level: Low-Medium
+
+Parameters:
+- FastEMA: Fast EMA period (default: 12)
+- SlowEMA: Slow EMA period (default: 26)
+- TrendEMA: Long-term trend filter (default: 50)
+*/
+
+// Parameters
+Param("Fast EMA", 12, 5, 30, 1);
+Param("Slow EMA", 26, 10, 100, 1);
+Param("Trend EMA", 50, 20, 200, 1);
+Param("Stop Loss %", 2.0, 0.5, 5, 0.1);
+
+FastEMA_Period = Param("Fast EMA", 12, 5, 30, 1);
+SlowEMA_Period = Param("Slow EMA", 26, 10, 100, 1);
+TrendEMA_Period = Param("Trend EMA", 50, 20, 200, 1);
+StopLossPercent = Param("Stop Loss %", 2.0, 0.5, 5, 0.1) / 100;
+
+// Calculate EMAs
+FastEMA = EMA(Close, FastEMA_Period);
+SlowEMA = EMA(Close, SlowEMA_Period);
+TrendEMA = EMA(Close, TrendEMA_Period);
+
+// Entry Signals - with trend confirmation
+FastCrossAbove = Cross(FastEMA, SlowEMA);
+FastCrossBelow = Cross(SlowEMA, FastEMA);
+
+AboveTrend = Close > TrendEMA;
+BelowTrend = Close < TrendEMA;
+
+// Generate signals
+Buy = FastCrossAbove AND AboveTrend;
+Sell = FastCrossBelow OR BelowTrend;
+
+// Stop Loss
+ApplyStop(stopTypeLoss, stopModePercent, StopLossPercent, 1);
+
+// Plot
+Plot(Close, "Close", colorBlack, styleLine | styleThick);
+Plot(FastEMA, "Fast EMA (" + FastEMA_Period + ")", colorBlue, styleLine);
+Plot(SlowEMA, "Slow EMA (" + SlowEMA_Period + ")", colorRed, styleLine);
+Plot(TrendEMA, "Trend EMA (" + TrendEMA_Period + ")", colorGray50, styleDashed);
+
+// Color background based on trend
+UpTrend = FastEMA > SlowEMA AND Close > TrendEMA;
+DownTrend = FastEMA < SlowEMA OR Close < TrendEMA;
+
+PlotOHLC(Open, High, Low, Close, "OHLC",
+    IIF(UpTrend, colorLightGreen, IIF(DownTrend, colorLightRed, colorGray50)),
+    styleCandle);
+
+// Signal arrows
+PlotShapes(Buy * shapeUpArrow, colorGreen, 0, Low - 2 * ATR(14));
+PlotShapes(Sell * shapeDownArrow, colorRed, 0, High + 2 * ATR(14));
+
+// Analysis columns
+AddColumn(Close, "Close", 1.2);
+AddColumn(FastEMA, "Fast EMA", 1.2);
+AddColumn(SlowEMA, "Slow EMA", 1.2);
+AddColumn(TrendEMA, "Trend EMA", 1.2);
+AddColumn(IIF(UpTrend, 1, 0), "Uptrend?", 1.0);

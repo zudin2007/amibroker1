@@ -1,0 +1,147 @@
+// Price-NBSA-TN v2.6 IMPROVED - 3 PANE with Watermark + Volume + TN
+// Improvements: Parameterized tick offsets, fixed title display, NBSA validation, volume spikes
+// Date: August 3, 2026
+// Compatible with: Indonesian stocks (IDX)
+
+_SECTION_BEGIN("Configuration");
+// All parameters configurable - no hardcoding!
+EntryOffsetTicks = Param("Entry Offset (Ticks)", 2, 1, 5, 1);
+StopOffsetTicks = Param("Stop Loss Offset (Ticks)", 1, 0, 3, 1);
+TargetOffsetTicks = Param("Take Profit Offset (Ticks)", 2, 1, 5, 1);
+WatermarkSize = Param("Watermark Size", 1.2, 0.5, 3, 0.1);
+ShowVolumeSpikes = ParamToggle("Show Volume Spikes?", "No|Yes", 1);
+VolSpikeThreshold = Param("Volume Spike Threshold (x average)", 2, 1, 5, 0.5);
+ShowNBSA = ParamToggle("Show NBSA Pane?", "No|Yes", 1);
+_SECTION_END();
+
+_SECTION_BEGIN("Price + TN + Watermark");
+SetChartOptions(0, chartShowArrows | chartShowDates);
+SetChartBkColor(ParamColor("Background Color", colorWhite));
+
+// Plot candlesticks
+Plot(C, "Close", colorBlack, styleCandle);
+
+// Watermark - Stock name centered on chart
+GfxSetOverlayMode(1);
+GfxSetTextColor(ParamColor("Watermark Color", ColorRGB(220,220,220)));
+GfxSelectFont("Arial Black", (Status("pxheight")/20)*WatermarkSize, 800);
+GfxSetTextAlign(6);
+GfxSetBkMode(0);
+GfxTextOut(Name(), Status("pxwidth")/2, Status("pxheight")/2.8);
+GfxSelectFont("Tahoma", (Status("pxheight")/40)*WatermarkSize, 500);
+GfxTextOut(FullName(), Status("pxwidth")/2, Status("pxheight")/1.9);
+
+// Fractal Detection (Tapak Naga)
+// TN = Top/Resistance (5-bar high)
+// KN = Bottom/Support (5-bar low)
+FracUp = ValueWhen((Ref(H,-2) >= Ref(H,-4)) AND (Ref(H,-2) >= Ref(H,-3))
+                    AND (Ref(H,-2) >= Ref(H,-1)) AND (Ref(H,-2) >= H),
+                    Ref(H,-2));
+FracDn = ValueWhen((Ref(L,-2) <= Ref(L,-4)) AND (Ref(L,-2) <= Ref(L,-3))
+                    AND (Ref(L,-2) <= Ref(L,-1)) AND (Ref(L,-2) <= L),
+                    Ref(L,-2));
+
+Plot(FracUp, "TN (Resistance)", ParamColor("Color TN", colorBlue), styleStaircase|styleThick);
+Plot(FracDn, "KN (Support)", ParamColor("Color KN", colorRed), styleStaircase|styleThick);
+
+// Calculate tick sizes based on IDX standards
+TickSize = IIf(FracUp<=200, 1, IIf(FracUp<=500, 2, IIf(FracUp<=2000, 5, IIf(FracUp<=5000, 10, 25))));
+L2 = LLV(L, 2);
+L5 = LLV(L, 5);
+TickL2 = IIf(L2<=200, 1, IIf(L2<=500, 2, IIf(L2<=2000, 5, IIf(L2<=5000, 10, 25))));
+TickL5 = IIf(L5<=200, 1, IIf(L5<=500, 2, IIf(L5<=2000, 5, IIf(L5<=5000, 10, 25))));
+
+// Entry, Stop Loss, Take Profit levels (now parameterized!)
+HargaTB = FracUp + EntryOffsetTicks*TickSize;      // TB = Tempat Beli (Entry)
+HargaSL = L2 - StopOffsetTicks*TickL2;             // SL = Stop Loss
+HargaTS = L5 - TargetOffsetTicks*TickL5;           // TS = Take Profit
+
+// Plot entry/exit levels as dashed lines
+Plot(HargaTB, "Entry (TB)", colorLime, styleDashed|styleThick);
+Plot(HargaSL, "Stop Loss (SL)", colorRed, styleDashed|styleThick);
+Plot(HargaTS, "Take Profit (TS)", colorOrange, styleDashed|styleThick);
+
+// Calculate trade metrics for display
+RiskPerShare = HargaTB - HargaSL;
+ProfitTarget = HargaTS - HargaTB;
+RiskRewardRatio = IIf(RiskPerShare > 0, ProfitTarget / RiskPerShare, 0);
+DistFromFrac = (C - FracUp) / FracUp * 100;
+_SECTION_END();
+
+_SECTION_BEGIN("NBSA Pane");
+// NBSA = Net Buy-Sell Activity (requires Aux2 field from data provider)
+// This pane shows smart money (institutional) volume analysis
+
+PlotNBSA = ShowNBSA;
+NBSA_Cum = Cum(Aux2)/1e9;  // Cumulative NBSA in billions
+NBSA_Available = (LastValue(NBSA_Cum) != 0);  // Check if Aux2 has data
+
+if(PlotNBSA AND NBSA_Available)
+{
+  warnaNBSA = IIf(NBSA_Cum > Ref(NBSA_Cum,-1), colorGreen, colorRed);
+
+  Plot(NBSA_Cum, "NBSA Cum (M)", warnaNBSA, styleLine|styleThick);
+  Plot(MA(NBSA_Cum,5), "MA5 NBSA", colorBlue, styleLine);
+  Plot(MA(NBSA_Cum,20), "MA20 NBSA", colorOrange, styleLine);
+
+  NBSA_Info = StrFormat(" | NBSA: %.2f M | MA5: %.2f | MA20: %.2f",
+                        LastValue(NBSA_Cum), LastValue(MA(NBSA_Cum,5)), LastValue(MA(NBSA_Cum,20)));
+}
+else if(PlotNBSA AND NOT NBSA_Available)
+{
+  NBSA_Info = " | NBSA Data Not Available (check data feed)";
+}
+else
+{
+  NBSA_Info = "";
+}
+_SECTION_END();
+
+_SECTION_BEGIN("Volume Pane");
+SetChartOptions(0, 0, chartGrid20 | chartGrid30 | chartGrid70 | chartGrid80);
+
+// Volume histogram with color coding
+VolColor = IIf(C > O, colorGreen, colorRed);
+Plot(V, "Volume", VolColor, styleHistogram|styleThick, 0, 1, 0, 0, 2);
+
+// Volume moving average (20-period)
+Plot(MA(V,20), "VMA20", colorBlue, styleLine|styleThick);
+
+// Volume spike detection (optional)
+if(ShowVolumeSpikes)
+{
+  VolSpike = V > MA(V,20) * VolSpikeThreshold;
+  SpikeColor = IIf(C > O, ColorRGB(0,255,0), ColorRGB(255,0,0));  // Bright green/red
+  Plot(IIf(VolSpike, V*1.05, Null), "Vol Spike", SpikeColor, styleHistogram, 0, 1);
+}
+
+VolRatio = V / Max(MA(V,20), 1);
+Vol_Info = StrFormat(" | Vol: %g | VMA20: %g | Ratio: %.1fx", V, MA(V,20), VolRatio);
+_SECTION_END();
+
+_SECTION_BEGIN("Comprehensive Title Display");
+// FIXED: All info in ONE title (no overwriting!)
+// Shows: Price info | Levels | NBSA (if available) | Volume
+
+Title = StrFormat(
+  "{{NAME}} - {{INTERVAL}} {{DATE}} | OHLC: %g / %g / %g / %g (%.2f%%) | " +
+  "TN: %g | Entry: %g | SL: %g | TP: %g | Risk: %g | R:R: %.2f | " +
+  "Distance: %.2f%%" +
+  NBSA_Info +
+  Vol_Info,
+  O, H, L, C, ROC(C,1),
+  FracUp, HargaTB, HargaSL, HargaTS,
+  RiskPerShare, RiskRewardRatio,
+  DistFromFrac
+);
+_SECTION_END();
+
+_SECTION_BEGIN("Commentary Display");
+// Show parameter values and key levels in commentary
+AddChartTextObject("EntryOffset", Name() + " - Entry Offset: " +
+                   StrFormat("%.0f ticks", EntryOffsetTicks));
+AddChartTextObject("StopOffset", Name() + " - Stop Offset: " +
+                   StrFormat("%.0f ticks", StopOffsetTicks));
+AddChartTextObject("TargetOffset", Name() + " - Target Offset: " +
+                   StrFormat("%.0f ticks", TargetOffsetTicks));
+_SECTION_END();

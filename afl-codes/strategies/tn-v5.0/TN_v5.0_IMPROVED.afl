@@ -1,0 +1,142 @@
+// TN v5.0 IMPROVED - Enhanced Momentum Screener (Parameterized & Optimized)
+// Original: TN_v5.0__OPTIMIZED_WINRATE_60_screener_dan_backtest.afl
+// Improvements: Parameterized filters, relaxed thresholds, removed duplicates, better organization
+
+_SECTION_BEGIN("Fractals");
+// Identify 5-bar highs (resistance) and lows (support)
+fUpF = Ref(H,-2) >= Ref(H,-4) AND Ref(H,-2) >= Ref(H,-3) AND Ref(H,-2) >= Ref(H,-1) AND Ref(H,-2) >= H;
+fDnF = Ref(L,-2) <= Ref(L,-4) AND Ref(L,-2) <= Ref(L,-3) AND Ref(L,-2) <= Ref(L,-1) AND Ref(L,-2) <= L;
+
+var1 = ValueWhen(fUpF, Ref(H,-2), 1);
+var2 = ValueWhen(fDnF, Ref(L,-2), 1);
+FracUp = HighestSince(var1 > 0, var1, 1);
+FracDn = LowestSince(var2 > 0, var2, 1);
+PctDiff4 = (C - FracUp) / FracUp * 100;
+_SECTION_END();
+
+_SECTION_BEGIN("Capital & Position Sizing");
+// Configuration for capital allocation and position management
+ModalInput = Param("Modal Total (juta)", 500, 50, 5000, 50) * 1000000;
+MaxPerSaham = Param("Max per Saham (juta)", 50, 10, 200, 10) * 1000000;
+_SECTION_END();
+
+_SECTION_BEGIN("Moving Averages & Volume Analysis");
+// Trend confirmation with multiple MAs + volume analysis
+EMA30 = EMA(C,30);
+EMA60 = EMA(C,60);
+MA100 = MA(C,100);
+MA200 = MA(C,200);
+SMA20 = MA(C,20);
+SMA50 = MA(C,50);
+SMA7 = MA(C,7);
+SMA65 = MA(C,65);
+
+VMA30 = MA(V,30);
+TRX30 = MA(C,30)*VMA30;
+VolPer = V/Max(VMA30,1);
+_SECTION_END();
+
+_SECTION_BEGIN("Entry & Exit Price Levels");
+// Fractal-based entry, stop loss, and take profit levels with tick adjustments
+L2 = LLV(L,2);
+L5 = LLV(L,5);
+TickSize = IIf(FracUp<=200,1,IIf(FracUp<=500,2,IIf(FracUp<=2000,5,IIf(FracUp<=5000,10,25))));
+TickL2 = IIf(L2<=200,1,IIf(L2<=500,2,IIf(L2<=2000,5,IIf(L2<=5000,10,25))));
+TickL5 = IIf(L5<=200,1,IIf(L5<=500,2,IIf(L5<=2000,5,IIf(L5<=5000,10,25))));
+
+EntryOffsetTicks = Param("Entry Offset (Ticks)", 2, 1, 5, 1);
+StopLossOffsetTicks = Param("Stop Loss Offset (Ticks)", 1, 0, 3, 1);
+TakeProfitOffsetTicks = Param("Take Profit Offset (Ticks)", 2, 1, 5, 1);
+
+HargaTB = FracUp + EntryOffsetTicks*TickSize;
+HargaSL = L2 - StopLossOffsetTicks*TickL2;
+HargaTS = L5 - TakeProfitOffsetTicks*TickL5;
+
+RiskAll = (HargaTB - HargaSL)/HargaTB*100 + 0.4;
+RiskAll = Max(RiskAll, 0.1);
+_SECTION_END();
+
+_SECTION_BEGIN("10-Factor Viral Scoring");
+// Combines trend (V1-3), momentum (V4-6), quality (V7-10)
+LLV245 = LLV(L,245);
+HHV90 = HHV(H,90);
+LLV90 = LLV(L,90);
+
+Viral_1 = C > SMA50 AND C > MA100;                 // Price above MAs
+Viral_2 = SMA20 > SMA50;                           // MA acceleration
+Viral_3 = SMA7/SMA65 > 1.05;                       // Short-term strength
+Viral_4 = C/LLV245 > 1.5;                          // Price near 1-year high
+Viral_5 = HHV90/LLV90 > 1.5;                       // Volatility expansion
+Viral_6 = ATR(20)/SMA20 > 0.03;                    // Volatility breakout
+Viral_7 = MA(V,30)*EMA(C,30) > 4000000000;         // Volume × Price
+Viral_8 = C > 100;                                 // Minimum price level
+Viral_9 = C <= Ref(HHV(H,5),-2);                   // Consolidation breakout
+Viral_10 = V > 1;                                  // Volume check
+
+ViralTambahan = Viral_1 + Viral_2 + Viral_3 + Viral_4 + Viral_5 + Viral_6 + Viral_7 + Viral_8 + Viral_9 + Viral_10;
+_SECTION_END();
+
+_SECTION_BEGIN("Configurable Filter Parameters");
+// ★ KEY IMPROVEMENT: All filter thresholds now configurable (were hardcoded)
+MinVScore = Param("Min VScore", 6, 5, 9, 1);                          // RELAXED from 9 to 6
+MaxRiskPercent = Param("Max Risk %", 8, 4, 15, 0.5);                  // RELAXED from 4.5 to 8
+MinScore = Param("Min SCORE", 60, 40, 90, 5);                         // RELAXED from 85 to 60
+MinTRX_Billions = Param("Min TRX30M (Billions)", 2, 0.5, 10, 0.5);    // RELAXED from 10 to 2
+MinTN_Pct = Param("Min TN %", -5, -10, 0, 1);                         // WIDENED range
+MaxTN_Pct = Param("Max TN %", 5, 0, 10, 1);                           // WIDENED range
+MinVolPer = Param("Min Volume Ratio", 0.5, 0.1, 1.5, 0.1);            // RELAXED from 0.7 to 0.5
+VolPerWeight = Param("Volume Weight in Score", 10, 0, 20, 1);         // Configurable weighting
+
+MinTRX = MinTRX_Billions * 1000000000;
+_SECTION_END();
+
+_SECTION_BEGIN("Scoring & Filtering");
+// Dynamic score formula with configurable weighting
+Score = 100 - RiskAll*5 + VolPer*VolPerWeight - abs(PctDiff4);
+
+// Apply filters with parameterized thresholds
+FilterViral = ViralTambahan >= MinVScore;                             // Uses MinVScore param
+FilterRisk = RiskAll <= MaxRiskPercent;                               // Uses MaxRiskPercent param
+FilterTN = PctDiff4 >= MinTN_Pct AND PctDiff4 <= MaxTN_Pct;           // Uses configurable range
+FilterTRX = TRX30 >= MinTRX AND VolPer >= MinVolPer;                  // Uses MinTRX & MinVolPer params
+FilterTANA = C >= EMA60 AND EMA30 >= MA100 AND EMA30 >= MA200;        // Trend confirmation
+
+FilterKondisi = FilterViral AND FilterRisk AND FilterTN AND FilterTRX AND FilterTANA;
+_SECTION_END();
+
+_SECTION_BEGIN("Buy & Sell Signals");
+// Entry: multiple conditions must pass + score threshold (configurable)
+Buy = FilterKondisi AND Score >= MinScore;
+Sell = L < HargaTS OR C < FracDn OR EMA30 < MA100;
+
+BuyPrice = HargaTB;
+SellPrice = IIf(L < HargaTS, HargaTS, C);
+
+PositionScore = ViralTambahan * 10000 + Score * 100 - RiskAll * 10;
+_SECTION_END();
+
+_SECTION_BEGIN("Backtest Configuration");
+SetPositionSize(MaxPerSaham, spsValue);
+SetOption("InitialEquity", ModalInput);
+SetOption("MaxOpenPositions", 10);
+SetOption("CommissionMode", 2);
+SetOption("CommissionAmount", 0.15);
+_SECTION_END();
+
+_SECTION_BEGIN("Screener Output");
+// Display configuration for analysis
+Filter = FilterKondisi;
+SetOption("NoDefaultColumns", True);
+
+AddTextColumn(Name(), "Emiten", 1, colorWhite, IIf(ViralTambahan >= MinVScore, colorDarkGreen, colorBlack));
+AddColumn(ViralTambahan, "VScore", 1.0, colorWhite, IIf(ViralTambahan >= MinVScore, colorDarkGreen, colorRed));
+AddColumn(Score, "SCORE", 1.1, colorWhite, IIf(Score >= MinScore, colorLime, colorYellow));
+AddColumn(PctDiff4, "%TN", 1.2, colorWhite, IIf(abs(PctDiff4) <= 2, colorLime, colorRed));
+AddColumn(RiskAll, "Risk%", 1.1, colorWhite, IIf(RiskAll <= 3, colorLime, IIf(RiskAll <= MaxRiskPercent, colorYellow, colorRed)));
+AddColumn(HargaTB, "TB", 1.0);
+AddColumn(HargaSL, "SL", 1.0);
+AddColumn(HargaTS, "TS", 1.0);
+AddColumn(TRX30/1e9, "TRX30M", 1.1);
+
+SetSortColumns(-2, -3);
+_SECTION_END();
